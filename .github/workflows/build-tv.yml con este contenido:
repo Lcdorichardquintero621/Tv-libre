@@ -1,0 +1,32 @@
+name: Build TV
+on:
+  push:
+    paths:
+      - 'tv.zip'
+      - '.github/workflows/build-tv.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          unzip -q -o tv.zip -d src
+          FILE=$(find src -name settings.gradle.kts | head -n1)
+          echo "PROJECT_DIR=$(dirname "$FILE")" >> "$GITHUB_ENV"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+      - run: gradle -p "$PROJECT_DIR" assembleDebug
+      - run: cp "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" TVLibre-TV.apk
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: tv-latest
+          name: TV Libre TV (última versión)
+          files: TVLibre-TV.apk
