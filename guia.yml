@@ -1,0 +1,77 @@
+name: Guia
+on:
+  schedule:
+    - cron: '30 5 * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  guia:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      # Sitios de guía que se descargan (uno por línea de la lista, separados por espacio)
+      SITES: "mi.tv"
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Descargar la guía (iptv-org/epg)
+        run: |
+          git clone --depth 1 -b master https://github.com/iptv-org/epg.git epg-tool
+          cd epg-tool
+          npm install
+          for s in $SITES; do
+            npm run grab --- --site=$s --days=1 --maxConnections=10 --output="../guide-$s.xml" || echo "Falló $s"
+          done
+      - name: Separar por canal
+        shell: python
+        run: |
+          import glob, json, os, re, sys
+          import xml.etree.ElementTree as ET
+          from datetime import datetime, timezone, timedelta
+
+          def ts(v):
+              v = v.strip()
+              m = re.match(r"(\d{14})\s*([+-]\d{4})?", v)
+              if not m:
+                  return None
+              d = datetime.strptime(m.group(1), "%Y%m%d%H%M%S")
+              off = m.group(2) or "+0000"
+              sign = 1 if off[0] == "+" else -1
+              tz = timezone(sign * timedelta(hours=int(off[1:3]), minutes=int(off[3:5])))
+              return int(d.replace(tzinfo=tz).timestamp() * 1000)
+
+          chans = {}
+          for f in glob.glob("guide-*.xml"):
+              try:
+                  for _, el in ET.iterparse(f):
+                      if el.tag != "programme":
+                          continue
+                      cid = el.get("channel")
+                      s, e = ts(el.get("start", "")), ts(el.get("stop", ""))
+                      t = el.findtext("title") or ""
+                      if cid and s and e and t.strip():
+                          chans.setdefault(cid, {})[s] = {"s": s, "e": e, "t": t.strip()}
+                      el.clear()
+              except Exception as ex:
+                  print("Aviso: no se pudo leer", f, ex)
+
+          os.makedirs("out", exist_ok=True)
+          for cid, progs in chans.items():
+              name = re.sub(r"[^A-Za-z0-9._-]", "_", cid.split("@")[0]) + ".json"
+              lst = sorted(progs.values(), key=lambda x: x["s"])
+              with open(os.path.join("out", name), "w", encoding="utf-8") as fh:
+                  json.dump({"p": lst}, fh, ensure_ascii=False, separators=(",", ":"))
+          print("Canales con programación:", len(chans))
+      - name: Publicar en la rama epg-data
+        run: |
+          cd out
+          git init -q
+          git checkout -q -b epg-data
+          git config user.name "guia-bot"
+          git config user.email "guia-bot@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Guía $(date -u +%F)"
+          git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          git push -f origin epg-data
