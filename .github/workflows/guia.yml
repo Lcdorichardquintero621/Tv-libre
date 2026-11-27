@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 300
     env:
-      # Sitios de guía que se descargan (uno por línea de la lista, separados por espacio)
+      # Sitios de guía que se descargan (separados por espacio)
       SITES: "mi.tv"
     steps:
       - uses: actions/setup-node@v4
@@ -22,7 +22,7 @@ jobs:
           cd epg-tool
           npm install
           for s in $SITES; do
-            npm run grab --- --site=$s --days=1 --maxConnections=10 --output="../guide-$s.xml" || echo "Falló $s"
+            npm run grab --- --sites=$s --days=1 --maxConnections=10 --output="../guide-$s.xml" || echo "Falló $s"
           done
       - name: Separar por canal
         shell: python
